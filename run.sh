@@ -1,1 +1,1 @@
-python3 telegram/main.py
+python3 telegram/virustotal.py

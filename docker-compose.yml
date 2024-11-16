@@ -1,0 +1,8 @@
+version: "3.9"
+services:
+  workerdisk:
+    build: .
+    environment:
+      - ID=${29259144}
+      - HASH=${3cc657a57a7c1787ddacf1d7d03470a3}
+      - TOKEN=${7736086288:AAE74McpSNqmf5QtcUR58T2IvVgLyGJYmx0} 

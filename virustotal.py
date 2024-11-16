@@ -1,0 +1,159 @@
+from pyrogram import Client, filters
+from pyrogram.types import InlineKeyboardMarkup,InlineKeyboardButton
+import pyrogram
+import os
+import botfunctions
+import threading
+import time
+from telegraph import Telegraph
+
+# bot
+bot_token = os.environ.get("TOKEN", "") 
+api_hash = os.environ.get("HASH", "") 
+api_id = os.environ.get("ID", "")
+app = Client("my_bot",api_id=api_id, api_hash=api_hash,bot_token=bot_token)
+MAXSIZE = 7250233115
+telegraph = Telegraph()
+telegraph.create_account(short_name='NO VIRUS')
+
+# start command
+@app.on_message(filters.command(["start"]))
+def strt(client: pyrogram.client.Client, message: pyrogram.types.messages_and_media.message.Message):
+
+    START = f'👋🏻 Hello! {message.from_user.mention}\
+    \nI am a Bot By **[EHRA](https://t.me/MYEHRA)**\
+\
+    \n\n__• You can send the file to the bot or forward it from another channel, and it will check file to **[VirusTotal](http://virustotal.com/)** with over **70** different antiviruses.\
+\
+    \n\n• To get scan results - send me any a file up to **600 MB** in size, and you will receive a detailed analysis of it.\
+\
+    \n\n• With the help of a bot, you can analyse suspicious files to identify virus and other bad programs.\
+\
+    \n\n• You can also add me to your chats, and I will be able to analyse the files sent by participants.__'
+
+    app.send_message(message.chat.id, START, reply_to_message_id=message.id, disable_web_page_preview=True,
+    reply_markup=InlineKeyboardMarkup([[
+                                           InlineKeyboardButton( "Developer", url="https://t.me/MYEHRA" )
+                                      ]]))
+
+
+# status updater
+def downstatus(statusfile,message):
+    while True:
+        if os.path.exists(statusfile):
+            break  
+    while os.path.exists(statusfile):
+        with open(statusfile,"r") as upread:
+            txt = upread.read()
+        try:
+            app.edit_message_text(message.chat.id, message.id, f"🔽 Downloaded... {txt}")
+            time.sleep(10)
+        except:
+            time.sleep(5)
+
+
+# progress function
+def progress(current, total, message):
+    with open(f'{message.id}downstatus.txt',"w") as fileup:
+        fileup.write(f"{current * 100 / total:.1f}%")
+
+
+# check function
+def checkvirus(message):
+    msg = app.send_message(message.chat.id, '🔽 Downloading...', reply_to_message_id=message.id)
+    print(f"Downloading: ID:  {message.id}  size: {message.document.file_size}")
+    dnsta = threading.Thread(target=lambda:downstatus(f'{message.id}downstatus.txt',msg),daemon=True)
+    dnsta.start()
+
+    file = app.download_media(message,progress=progress, progress_args=[message])
+    os.remove(f'{message.id}downstatus.txt')
+    app.edit_message_text(message.chat.id, msg.id, '🔼 Uploading to VirusTotal...')
+    print(f"Uploading: ID: {message.id}  size: {message.document.file_size}")
+
+    hash = botfunctions.uploadfile(file)
+    os.remove(file)
+    print(f'ID: {message.id}  HASH: {hash}')
+
+    if hash == 0:
+        app.edit_message_text(message.chat.id, msg.id, "✖️ Failed")
+        print("HASH is 0")
+        return
+
+    app.edit_message_text(message.chat.id, msg.id, '⚙️ Checking...')
+    print(f"Checking: ID:  {message.id}  size: {message.document.file_size}")
+    maintext, checktext, signatures, link = botfunctions.cleaninfo(hash)
+
+    if maintext == None:
+        app.edit_message_text(message.chat.id, msg.id, "✖️ Failed")
+        print("Function returned None")
+        return
+
+    response = telegraph.create_page('VT',content=[f'{maintext}-|-{checktext}-|-{signatures}-|-{link}'])
+    tlink = response['url']
+
+    app.edit_message_text(message.chat.id, msg.id, maintext,
+            reply_markup=InlineKeyboardMarkup([[  
+                                                    InlineKeyboardButton( "🕵🏻 Detections", callback_data=f"D|{tlink}"),
+                                                    InlineKeyboardButton( "🌡 Signatures", callback_data=f"S|{tlink}"),
+                                              ],
+                                              [
+                                                InlineKeyboardButton( "👀 View on Web", url=link )
+                                              ]]))
+
+
+# document
+@app.on_message(filters.document)
+def docu(client: pyrogram.client.Client, message: pyrogram.types.messages_and_media.message.Message):
+    if int(message.document.file_size) > MAXSIZE:
+        app.send_message(message.chat.id, " 🪨𝐅𝐢𝐥𝐞 𝐢𝐬 𝐭𝐨𝐨 𝐁𝐢𝐠 𝐟𝐨𝐫 𝐁𝐨𝐭. 𝐈𝐭 𝐬𝐡𝐨𝐮𝐥𝐝 𝐛𝐞 𝐥𝐞𝐬𝐬 𝐭𝐡𝐚𝐧 𝟔𝟎𝟎 𝐌𝐁", reply_to_message_id=message.id)
+        return
+    vt = threading.Thread(target=lambda:checkvirus(message),daemon=True)
+    vt.start()        
+
+
+# call back functon
+@app.on_callback_query()
+def callbck(client: pyrogram.client.Client, message: pyrogram.types.CallbackQuery):
+    url = message.message.reply_markup.inline_keyboard[1][0].url
+    datas = message.data.split("|")
+    action = datas[0]
+    tlink = datas[1]
+    res = telegraph.get_page(tlink.split("https://telegra.ph/")[1], return_content=True, return_html=False)
+    result = res["content"][0].split("-|-")
+    maintext = result[0]
+    checktext = result[1]
+    signatures = result[2]
+
+    if action == "B":
+        app.edit_message_text(message.message.chat.id, message.message.id, maintext,
+                reply_markup=InlineKeyboardMarkup([[  
+                                                        InlineKeyboardButton( "🕵🏻 Detections", callback_data=f"D|{tlink}"),
+                                                        InlineKeyboardButton( "🌡 Signatures", callback_data=f"S|{tlink}")
+                                                ],
+                                                [
+                                                InlineKeyboardButton( "👀 View on Web", url=url )
+                                                ]]))
+
+    if action == "D":
+        app.edit_message_text(message.message.chat.id, message.message.id, checktext,
+                reply_markup=InlineKeyboardMarkup([[  
+                                                        InlineKeyboardButton( "🔙 Back", callback_data=f"B|{tlink}"),
+                                                        InlineKeyboardButton( "🌡 Signatures", callback_data=f"S|{tlink}"),
+                                                ],
+                                                [
+                                                InlineKeyboardButton( "👀 View on Web", url=url )
+                                                ]]))
+
+    if action == "S":
+        app.edit_message_text(message.message.chat.id, message.message.id, signatures,
+                reply_markup=InlineKeyboardMarkup([[  
+                                                        InlineKeyboardButton( "🔙 Back", callback_data=f"B|{tlink}"),
+                                                        InlineKeyboardButton( "🕵🏻 Detections", callback_data=f"D|{tlink}")
+                                                ],
+                                                [
+                                                InlineKeyboardButton( "👀 View on Web", url=url )
+                                                ]]))
+
+
+# app run        
+app.run()        
